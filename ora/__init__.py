@@ -1,4 +1,4 @@
-import PIL
+import PIL.Image
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -49,8 +49,7 @@ def read_ora(ora_file):
 		result['root'] = _parse_stack(stack_tree_root)
 
 		# Load layer images
-		#TODO
-		pass
+		_load_rasters(result['root'], ora_archive)
 
 	return result
 
@@ -59,6 +58,17 @@ def write_ora(ora_file):
 	Convert a dict to an ORA archive and write it to a file
 	"""
 	raise Exception('ora.write_ora not yet implemented')
+
+def _load_rasters(stack, ora_archive):
+	for child in stack['childs']:
+		if child['type'] == 'stack':
+			_load_rasters(child, ora_archive)
+		elif child['type'] == 'layer':
+			raster = None
+			with ora_archive.open(child['src']) as img_file:
+				raster = PIL.Image.open(img_file)
+				raster.load() # Read before closing the file. Pillow's doc proposed solution is to use an io.BytesIO object to act as a buffer, but would mean we hold compressed image data even after parsing it.
+			child['raster'] = raster
 
 def _merge_attributes(dest, elem, int_attributes = None, float_attributes = None, forbidden_attributes = None):
 	for attrib_name in elem.attrib:
