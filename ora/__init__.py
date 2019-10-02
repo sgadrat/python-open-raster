@@ -1,4 +1,5 @@
 import PIL.Image
+import PIL.ImageFile
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -60,6 +61,8 @@ def write_ora(ora_file):
 	raise Exception('ora.write_ora not yet implemented')
 
 def _load_rasters(stack, ora_archive):
+	PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True # Without that, some GIMP files cannot be read: https://github.com/python-pillow/Pillow/issues/3287
+
 	for child in stack['childs']:
 		if child['type'] == 'stack':
 			_load_rasters(child, ora_archive)
