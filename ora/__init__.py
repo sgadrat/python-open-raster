@@ -1,6 +1,7 @@
 import PIL.Image
 import PIL.ImageFile
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import quoteattr, escape
 import zipfile
 
 def read_ora(ora_file):
@@ -52,13 +53,82 @@ def read_ora(ora_file):
 		# Load layer images
 		_load_rasters(result['root'], ora_archive)
 
+		#TODO load thumbnail and mergedimage
+
 	return result
 
-def write_ora(ora_file):
+def write_ora(image, ora_file):
 	"""
 	Convert a dict to an ORA archive and write it to a file
 	"""
-	raise Exception('ora.write_ora not yet implemented')
+	# Normalize between different kind of parameters
+	ora_filename = None
+	if isinstance(ora_file, str):
+		ora_filename = ora_file
+	else:
+		ora_filename = getattr(ora_file, 'name', '<data>')
+
+	# Write the file
+	with zipfile.ZipFile(ora_file, 'w') as ora_archive:
+		# mimetype file
+		ora_archive.writestr('mimetype', 'image/openraster', compress_type=zipfile.ZIP_STORED)
+
+		# stack.xml file
+		rasters = []
+		with ora_archive.open('stack.xml', mode='w') as stack_file:
+			stack_file.write(_u("<?xml version='1.0' encoding='UTF-8'?>\n"))
+			stack_file.write(_u('<image version="{}" w="{}" h="{}" xres="{}" yres="{}">\n'.format(
+				image['version'], image['w'], image['h'], image['xres'], image['yres']
+			)))
+			_dump_stack(stack_file, image['root'], rasters=rasters)
+			stack_file.write(_u('</image>\n'))
+
+		# Rasters
+		for raster in rasters:
+			with ora_archive.open(raster['src'], 'w') as raster_file:
+				raster['raster'].save(raster_file, format='PNG')
+
+		# Thumbnail
+		thumbnail = image.get('thumbnail', PIL.Image.new('RGB', (256,256), color='#ffffff'))
+		with ora_archive.open('Thumbnails/thumbnail.png', 'w') as thumbnail_file:
+			thumbnail.save(thumbnail_file, format='PNG')
+
+		# Merged image
+		if image.get('merged_image') is not None:
+			with ora_archive.open('mergedimage.png', 'w') as merged_image_file:
+				image['merged_image'].save(merged_image_file, format='PNG')
+
+def _u(txt):
+	return txt.encode('utf-8')
+
+def _dump_stack(stack_file, stack, rasters, indent_level=0, indent_style='\t'):
+	assert stack.get('type') == 'stack', 'internal error: serializing wrong object type'
+	indent = indent_style * indent_level
+	indent2 = indent_style * (indent_level+1)
+
+	attributes = _stack_entry_attributes(stack)
+	stack_file.write(_u(indent + '<stack{}>\n'.format(attributes)))
+	for child in stack.get('childs', []):
+		if child.get('type') == 'stack':
+			_dump_stack(stack_file, child, rasters, indent_level+1, indent_style)
+		elif child.get('type') == 'layer':
+			assert 'raster' in child, 'cannot serialize a layer without raster'
+			src = child.get('src', 'data/layer_{}.png'.format(len(rasters)))
+			rasters.append({'src': src, 'raster': child['raster']})
+
+			attributes = ' src={}{}'.format(quoteattr(src), _stack_entry_attributes(child))
+			stack_file.write(_u(indent2 + '<layer{} />'.format(attributes)))
+		elif child.get('type') == 'text':
+			stack_file.write(_u(indent2 + '<text{}>{}</text>'.format(_stack_entry_attributes(child), escape(child.get('contents', '')))))
+		else:
+			raise Exception('unknown OpenRaster item type "{}"'.format(child.get('type')))
+	stack_file.write(_u(indent + '</stack>\n'))
+
+def _stack_entry_attributes(entry, optional_attributes=['name', 'x', 'y', 'opacity', 'visibility', 'composite-op']):
+	attributes = ''
+	for attribute_name in optional_attributes:
+		if entry.get(attribute_name) is not None: attributes += ' {}={}'.format(attribute_name, quoteattr(str(entry.get(attribute_name))))
+	return attributes
 
 def _load_rasters(stack, ora_archive):
 	PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True # Without that, some GIMP files cannot be read: https://github.com/python-pillow/Pillow/issues/3287

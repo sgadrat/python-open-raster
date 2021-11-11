@@ -21,8 +21,10 @@ Usage
 -----
 
 ::
+
   >>> import ora
   >>> image = ora.read_ora('my_file.ora')
+  >>> ora.write_ora(image, 'copy_of_my_file.ora')
   >>> image
   {
    'version': '0.0.3',
@@ -82,5 +84,4 @@ Usage
 TODO
 ----
 
- * Implement write_ora()
  * Provide a more atomic library, allowing to read parts of an Open Raster file without loading it entirely in memory
